@@ -12,7 +12,7 @@ value class Ltv private constructor(val ratio: BigDecimal) : Comparable<Ltv> {
     companion object {
         fun ofPercent(percent: BigDecimal): Ltv {
             require(percent.signum() >= 0) { "LTV must not be negative: $percent%" }
-            return Ltv(percent.movePointLeft(2))
+            return Ltv(percent.movePointLeft(2).stripTrailingZeros())
         }
         fun ofPercent(percent: Int): Ltv = ofPercent(percent.toBigDecimal())
     }

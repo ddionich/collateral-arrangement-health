@@ -41,6 +41,20 @@ class Money(val amount: BigDecimal, val asset: Asset) : Comparable<Money> {
 // this is used like Money(2, BTC) * Rate(30000, BTC, USDC), which will give you Money(60000, USDC) only if the base asset of the rate matches the asset of the money
 // so we avoid using Money(2, BTC) * Rate(30000, ETH, USDC), which would be nonsensical, and it can provoke a silent error if the user (or the future code) is not careful,
 // so we enforce that the base asset of the rate must match the asset of the money
-data class Rate(val value: BigDecimal, val base: Asset, val quote: Asset) {
+class Rate(val value: BigDecimal, val base: Asset, val quote: Asset) {
     init { require(value.signum() > 0) { "rate must be positive" } }
+
+    // Not a data class: a data class's generated equals would use BigDecimal.equals on
+    // `value`, which is scale-sensitive - the same reason Money hand-writes its own equals.
+    override fun equals(other: Any?) =
+        other is Rate && base == other.base && quote == other.quote && value.compareTo(other.value) == 0
+
+    override fun hashCode(): Int {
+        var result = base.hashCode()
+        result = 31 * result + quote.hashCode()
+        result = 31 * result + value.stripTrailingZeros().hashCode()
+        return result
+    }
+
+    override fun toString() = "$value $base/$quote"
 }
