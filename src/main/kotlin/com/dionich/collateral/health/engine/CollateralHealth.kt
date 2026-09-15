@@ -1,12 +1,7 @@
 package com.dionich.collateral.health.engine
 
-import com.dionich.collateral.health.model.Band
-import com.dionich.collateral.health.model.CollateralArrangement
-import com.dionich.collateral.health.model.Event
-import com.dionich.collateral.health.model.Limits
-import com.dionich.collateral.health.model.Status
+import com.dionich.collateral.health.model.*
 import com.dionich.collateral.health.money.Asset
-import com.dionich.collateral.health.money.Money
 import com.dionich.collateral.health.money.Rate
 import java.math.BigDecimal
 
