@@ -8,8 +8,8 @@ triggered the recompute, and (optionally) its previous status.
 
 No persistence, no HTTP, no CLI, no framework — a library with a small public API meant to
 be called from HTTP controllers and background jobs, exactly as the brief asks for. The
-whole domain is five files and ~120 lines under `src/main/kotlin/collateral/health/`; the
-rest is tests.
+whole domain lives under `src/main/kotlin/com/dionich/collateral/health/`, split into
+`money`, `model` and `engine`; the rest is tests.
 
 ```bash
 ./gradlew test
@@ -112,11 +112,12 @@ hiding behind literal correctness, not a hypothetical.
   claim below meaningful: nothing in the pipeline can throw for reasons unrelated to the
   inputs.
 - **Typed, exact money.** `Asset`, `Money`, `Rate` and `Ltv` are dedicated types over
-  `BigDecimal`, never `Double`/`Float`. `Money` is deliberately **not** a `data class`: the
-  generated `equals` would delegate to `BigDecimal.equals`, which is scale-sensitive
-  (`39000` != `39000.00`), and this spec's every rule pivots on exact "at or above"
-  comparisons at a threshold. `equals` is hand-written and anchored to `compareTo` instead;
-  `MoneyTest` pins the distinction directly.
+  `BigDecimal`, never `Double`/`Float`. `Money` and `Rate` are deliberately **not**
+  `data class`es: the generated `equals` would delegate to `BigDecimal.equals`, which is
+  scale-sensitive (`39000` != `39000.00`), and this spec's every rule pivots on exact "at or
+  above" comparisons at a threshold. Both hand-write `equals` anchored to `compareTo` instead.
+  `Ltv` is a `value class` (Kotlin doesn't allow overriding `equals` there yet), so it
+  canonicalizes scale once at construction (`ofPercent`) instead. `MoneyTest` pins all three.
 - **An enriched result, not a bare enum.** Covered under "The public API" above —
   `HealthAssessment` carries the limits, the band, the pre-history candidate, and the rules
   that fired, because the brief explicitly asks for reasoning that's legible to controllers
@@ -190,4 +191,4 @@ What I'd genuinely do with more time, in priority order:
 Time spent: within the 3-hour budget described in the brief, split roughly as reading and
 writing down assumptions first, then the domain types, then the pipeline and history rules,
 then the transition matrix and remaining tests, then this README last. Nothing here was cut
-for time — the checklist below and the test suite are both complete.
+for time — the test suite is complete.
