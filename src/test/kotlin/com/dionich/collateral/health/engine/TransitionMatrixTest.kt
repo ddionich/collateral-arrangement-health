@@ -10,8 +10,10 @@ import com.dionich.collateral.health.money.Ltv
 import com.dionich.collateral.health.money.LtvSet
 import com.dionich.collateral.health.money.Money
 import com.dionich.collateral.health.money.Rate
-import io.kotest.core.spec.style.FunSpec
-import io.kotest.matchers.shouldBe
+import kotlin.test.assertEquals
+import org.junit.jupiter.api.DynamicTest
+import org.junit.jupiter.api.DynamicTest.dynamicTest
+import org.junit.jupiter.api.TestFactory
 
 /**
  * The full 48-cell transition matrix from result.md §4: 6 previous statuses
@@ -26,12 +28,13 @@ import io.kotest.matchers.shouldBe
  *   B0 = 29,999.99 (below Initial)   B1 = 30,000 (at Initial)
  *   B2 = 39,000 (at Maintenance)     B3 = 48,000 (at Liquidation)
  */
-class TransitionMatrixTest : FunSpec({
+class TransitionMatrixTest {
 
-    val btc = Asset("BTC"); val usdc = Asset("USDC")
-    val prices = PriceSource { _, _ -> Rate("30000".toBigDecimal(), btc, usdc) }
+    private val btc = Asset("BTC")
+    private val usdc = Asset("USDC")
+    private val prices = PriceSource { _, _ -> Rate("30000".toBigDecimal(), btc, usdc) }
 
-    fun ca(requirement: String, prev: Status?) = CollateralArrangement(
+    private fun ca(requirement: String, prev: Status?) = CollateralArrangement(
         id = CaId("ca-matrix"),
         collateral = Money("2".toBigDecimal(), btc),
         requirement = Money(requirement.toBigDecimal(), usdc),
@@ -39,28 +42,27 @@ class TransitionMatrixTest : FunSpec({
         currentStatus = prev,
     )
 
-    data class Band(val label: String, val requirement: String)
-    val b0 = Band("B0 req<Initial", "29999.99")
-    val b1 = Band("B1 req>=Initial", "30000")
-    val b2 = Band("B2 req>=Maintenance", "39000")
-    val b3 = Band("B3 req>=Liquidation", "48000")
-    val bands = listOf(b0, b1, b2, b3)
+    private data class Band(val label: String, val requirement: String)
+    private val b0 = Band("B0 req<Initial", "29999.99")
+    private val b1 = Band("B1 req>=Initial", "30000")
+    private val b2 = Band("B2 req>=Maintenance", "39000")
+    private val b3 = Band("B3 req>=Liquidation", "48000")
 
-    data class Prev(val label: String, val status: Status?)
-    val none = Prev("none", null)
-    val gs = Prev("Good Standing", Status.GOOD_STANDING)
-    val nm = Prev("Near Margin", Status.NEAR_MARGIN)
-    val imc = Prev("Initial MC", Status.INITIAL_MARGIN_CALL)
-    val mmc = Prev("Maintenance MC", Status.MAINTENANCE_MARGIN_CALL)
-    val liq = Prev("Liquidation", Status.LIQUIDATION)
+    private data class Prev(val label: String, val status: Status?)
+    private val none = Prev("none", null)
+    private val gs = Prev("Good Standing", Status.GOOD_STANDING)
+    private val nm = Prev("Near Margin", Status.NEAR_MARGIN)
+    private val imc = Prev("Initial MC", Status.INITIAL_MARGIN_CALL)
+    private val mmc = Prev("Maintenance MC", Status.MAINTENANCE_MARGIN_CALL)
+    private val liq = Prev("Liquidation", Status.LIQUIDATION)
 
-    data class Case(val event: Event, val prev: Prev, val band: Band, val expected: Status)
+    private data class Case(val event: Event, val prev: Prev, val band: Band, val expected: Status)
 
-    val recompute = Event.Recompute(Reason.PRICE_MOVE)
-    val link = Event.Link
+    private val recompute = Event.Recompute(Reason.PRICE_MOVE)
+    private val link = Event.Link
 
     // --- Ordinary recompute (rules 1-4 base classification, rule 6/7/8 history) ---
-    val recomputeCases = listOf(
+    private val recomputeCases = listOf(
         // prev = none / Good Standing / Near Margin: pure base classification (rules 1-4)
         Case(recompute, none, b0, Status.GOOD_STANDING),
         Case(recompute, none, b1, Status.NEAR_MARGIN),
@@ -97,7 +99,7 @@ class TransitionMatrixTest : FunSpec({
     )
 
     // --- Link event (rule 5: only produces Good Standing or Initial Margin Call, never overrides MMC/Liquidation) ---
-    val linkCases = listOf(
+    private val linkCases = listOf(
         Case(link, none, b0, Status.GOOD_STANDING),
         Case(link, none, b1, Status.INITIAL_MARGIN_CALL),
         Case(link, none, b2, Status.INITIAL_MARGIN_CALL),
@@ -130,15 +132,20 @@ class TransitionMatrixTest : FunSpec({
         Case(link, liq, b3, Status.LIQUIDATION),
     )
 
-    val allCases = recomputeCases + linkCases
-    // 6 previous statuses x 4 bands x 2 events = 48 cells, matching result.md §4 exactly.
-    check(allCases.size == 48) { "expected 48 cells, found ${allCases.size}" }
-    check(recomputeCases.size == 24 && linkCases.size == 24)
+    @TestFactory
+    fun `48-cell transition matrix`(): List<DynamicTest> {
+        val allCases = recomputeCases + linkCases
+        // 6 previous statuses x 4 bands x 2 events = 48 cells, matching result.md §4 exactly.
+        check(allCases.size == 48) { "expected 48 cells, found ${allCases.size}" }
+        check(recomputeCases.size == 24 && linkCases.size == 24)
 
-    allCases.forEach { c ->
-        test("${c.event.label} | prev=${c.prev.label} | ${c.band.label} -> ${c.expected}") {
-            CollateralHealth.assess(ca(c.band.requirement, c.prev.status), c.event, prices)
-                .status shouldBe c.expected
+        return allCases.map { c ->
+            dynamicTest("${c.event.label} | prev=${c.prev.label} | ${c.band.label} -> ${c.expected}") {
+                assertEquals(
+                    c.expected,
+                    CollateralHealth.assess(ca(c.band.requirement, c.prev.status), c.event, prices).status,
+                )
+            }
         }
     }
-})
+}

@@ -10,45 +10,54 @@ import com.dionich.collateral.health.money.Ltv
 import com.dionich.collateral.health.money.LtvSet
 import com.dionich.collateral.health.money.Money
 import com.dionich.collateral.health.money.Rate
-import io.kotest.core.spec.style.FunSpec
-import io.kotest.matchers.shouldBe
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
-class WorkedExampleTest : FunSpec({
+class WorkedExampleTest {
 
-    val btc = Asset("BTC"); val usdc = Asset("USDC")
-    val prices = PriceSource { _, _ -> Rate("30000".toBigDecimal(), btc, usdc) }
+    private val btc = Asset("BTC")
+    private val usdc = Asset("USDC")
+    private val prices = PriceSource { _, _ -> Rate("30000".toBigDecimal(), btc, usdc) }
 
-    val ca = CollateralArrangement(
+    private val ca = CollateralArrangement(
         id = CaId("ca-1"),
         collateral = Money("2".toBigDecimal(), btc),
         requirement = Money("42000".toBigDecimal(), usdc),
         ltvs = LtvSet(Ltv.ofPercent(50), Ltv.ofPercent(65), Ltv.ofPercent(80)),
     )
 
-    test("derives the limits from the PDF worked example") {
+    @Test
+    fun `derives the limits from the PDF worked example`() {
         val a = CollateralHealth.assess(ca, Event.Recompute(), prices)
-        a.collateralValue shouldBe Money("60000".toBigDecimal(), usdc)
-        a.limits.initial     shouldBe Money("30000".toBigDecimal(), usdc)
-        a.limits.maintenance shouldBe Money("39000".toBigDecimal(), usdc)
-        a.limits.liquidation shouldBe Money("48000".toBigDecimal(), usdc)
+        assertEquals(Money("60000".toBigDecimal(), usdc), a.collateralValue)
+        assertEquals(Money("30000".toBigDecimal(), usdc), a.limits.initial)
+        assertEquals(Money("39000".toBigDecimal(), usdc), a.limits.maintenance)
+        assertEquals(Money("48000".toBigDecimal(), usdc), a.limits.liquidation)
     }
 
-    test("an ordinary recompute at 42,000 USDC is a Maintenance Margin Call") {
-        CollateralHealth.assess(ca, Event.Recompute(Reason.PRICE_MOVE), prices)
-            .status shouldBe Status.MAINTENANCE_MARGIN_CALL
+    @Test
+    fun `an ordinary recompute at 42,000 USDC is a Maintenance Margin Call`() {
+        assertEquals(
+            Status.MAINTENANCE_MARGIN_CALL,
+            CollateralHealth.assess(ca, Event.Recompute(Reason.PRICE_MOVE), prices).status,
+        )
     }
 
-    test("the same CA, just linked, is an Initial Margin Call") {
-        CollateralHealth.assess(ca, Event.Link, prices).status shouldBe Status.INITIAL_MARGIN_CALL
+    @Test
+    fun `the same CA, just linked, is an Initial Margin Call`() {
+        assertEquals(Status.INITIAL_MARGIN_CALL, CollateralHealth.assess(ca, Event.Link, prices).status)
     }
 
-    test("same limits from a different balance and price - guards against the 30,000 coincidence") {
+    @Test
+    fun `same limits from a different balance and price - guards against the 30,000 coincidence`() {
         val other = ca.copy(collateral = Money("1.5".toBigDecimal(), btc))
-        val a = CollateralHealth.assess(other, Event.Recompute(), PriceSource { _, _ ->
-            Rate("40000".toBigDecimal(), btc, usdc)
-        })
-        a.collateralValue shouldBe Money("60000".toBigDecimal(), usdc)
-        a.limits.initial shouldBe Money("30000".toBigDecimal(), usdc)
-        a.status shouldBe Status.MAINTENANCE_MARGIN_CALL
+        val a = CollateralHealth.assess(
+            other,
+            Event.Recompute(),
+            PriceSource { _, _ -> Rate("40000".toBigDecimal(), btc, usdc) },
+        )
+        assertEquals(Money("60000".toBigDecimal(), usdc), a.collateralValue)
+        assertEquals(Money("30000".toBigDecimal(), usdc), a.limits.initial)
+        assertEquals(Status.MAINTENANCE_MARGIN_CALL, a.status)
     }
-})
+}

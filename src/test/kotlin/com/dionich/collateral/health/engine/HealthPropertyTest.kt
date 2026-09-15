@@ -11,30 +11,30 @@ import com.dionich.collateral.health.money.Ltv
 import com.dionich.collateral.health.money.LtvSet
 import com.dionich.collateral.health.money.Money
 import com.dionich.collateral.health.money.Rate
-import io.kotest.core.spec.style.FunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.property.Arb
-import io.kotest.property.arbitrary.enum
-import io.kotest.property.arbitrary.int
-import io.kotest.property.arbitrary.long
-import io.kotest.property.arbitrary.of
-import io.kotest.property.arbitrary.orNull
-import io.kotest.property.checkAll
+import kotlin.random.Random
+import kotlin.test.Test
+import kotlin.test.assertTrue
 
 /**
  * Exactly the four properties from plan-kotlin.md §7 - no more. The transition
  * matrix already gives exhaustive coverage of the decision space; these are a
  * cross-cutting sanity net over the whole input space, not a second source of
  * documentation.
+ *
+ * No property-testing library is used (kotest-property was dropped along with Kotest),
+ * so each property is checked over a fixed number of pseudo-random samples drawn from
+ * a seeded Random - deterministic across runs, without pulling in a new dependency.
  */
-class HealthPropertyTest : FunSpec({
+class HealthPropertyTest {
 
-    val btc = Asset("BTC"); val usdc = Asset("USDC")
-    val prices = PriceSource { _, _ -> Rate("30000".toBigDecimal(), btc, usdc) }
-    val ltvs = LtvSet(Ltv.ofPercent(50), Ltv.ofPercent(65), Ltv.ofPercent(80))
-    val events = Arb.of(listOf<Event>(Event.Link, Event.Recompute(Reason.PRICE_MOVE)))
+    private val btc = Asset("BTC")
+    private val usdc = Asset("USDC")
+    private val prices = PriceSource { _, _ -> Rate("30000".toBigDecimal(), btc, usdc) }
+    private val ltvs = LtvSet(Ltv.ofPercent(50), Ltv.ofPercent(65), Ltv.ofPercent(80))
+    private val statuses = Status.entries.toList()
+    private val samples = 500
 
-    fun ca(requirement: Long, prev: Status?) = CollateralArrangement(
+    private fun ca(requirement: Long, prev: Status?) = CollateralArrangement(
         id = CaId("ca-property"),
         collateral = Money("2".toBigDecimal(), btc),
         requirement = Money(requirement.toBigDecimal(), usdc),
@@ -42,43 +42,63 @@ class HealthPropertyTest : FunSpec({
         currentStatus = prev,
     )
 
-    test("P1: raising the requirement, everything else fixed, never yields a less severe status") {
-        checkAll(
-            Arb.enum<Status>().orNull(), events, Arb.long(0L..60_000L), Arb.long(0L..60_000L),
-        ) { prev, event, base, delta ->
+    private fun Random.nextPrevOrNull(): Status? = if (nextBoolean()) null else statuses[nextInt(statuses.size)]
+    private fun Random.nextEvent(): Event = if (nextBoolean()) Event.Link else Event.Recompute(Reason.PRICE_MOVE)
+    private fun Random.nextRequirement(): Long = nextLong(0L, 60_000L)
+
+    @Test
+    fun `P1 raising the requirement, everything else fixed, never yields a less severe status`() {
+        val random = Random(1)
+        repeat(samples) {
+            val prev = random.nextPrevOrNull()
+            val event = random.nextEvent()
+            val base = random.nextRequirement()
+            val delta = random.nextRequirement()
             val lower = CollateralHealth.assess(ca(base, prev), event, prices).status
             val higher = CollateralHealth.assess(ca(base + delta, prev), event, prices).status
-            (higher >= lower) shouldBe true
+            assertTrue(higher >= lower)
         }
     }
 
-    test("P2: the result is never less severe than the previous status, unless the requirement clears the Initial limit (a full cure)") {
-        checkAll(Arb.enum<Status>(), events, Arb.long(0L..60_000L)) { prev, event, requirement ->
+    @Test
+    fun `P2 the result is never less severe than the previous status, unless the requirement clears the Initial limit (a full cure)`() {
+        val random = Random(2)
+        repeat(samples) {
+            val prev = statuses[random.nextInt(statuses.size)]
+            val event = random.nextEvent()
+            val requirement = random.nextRequirement()
             val a = CollateralHealth.assess(ca(requirement, prev), event, prices)
             if (a.band != Band.BELOW_INITIAL) {
-                (a.status >= prev) shouldBe true
+                assertTrue(a.status >= prev)
             }
         }
     }
 
-    test("P3: a link only produces Good Standing or Initial Margin Call, or leaves a preexisting Maintenance Margin Call / Liquidation untouched") {
-        checkAll(Arb.enum<Status>().orNull(), Arb.long(0L..60_000L)) { prev, requirement ->
+    @Test
+    fun `P3 a link only produces Good Standing or Initial Margin Call, or leaves a preexisting Maintenance Margin Call or Liquidation untouched`() {
+        val random = Random(3)
+        repeat(samples) {
+            val prev = random.nextPrevOrNull()
+            val requirement = random.nextRequirement()
             val result = CollateralHealth.assess(ca(requirement, prev), Event.Link, prices).status
             val leftCalledStatusIntact = prev in Status.CALLED && result == prev
-            (result == Status.GOOD_STANDING || result == Status.INITIAL_MARGIN_CALL || leftCalledStatusIntact) shouldBe true
+            assertTrue(result == Status.GOOD_STANDING || result == Status.INITIAL_MARGIN_CALL || leftCalledStatusIntact)
         }
     }
 
-    test("P4: with all three LTVs equal, the base classification for a recompute can only be Good Standing or Liquidation") {
+    @Test
+    fun `P4 with all three LTVs equal, the base classification for a recompute can only be Good Standing or Liquidation`() {
         // Asserted against statusBeforeHistoryRules, not the final status: this property is
         // about the structural precedence rule (H5), which lives entirely in the base
         // classification step. The Initial Margin Call ceiling (rule 6) is a separate,
         // history-dependent concern, already covered exhaustively by TransitionMatrixTest -
         // it can hold the final status at Initial Margin Call even when the band collapses
         // to Good Standing/Liquidation only, so it must not be conflated with this property.
-        checkAll(
-            Arb.enum<Status>().orNull(), Arb.long(0L..60_000L), Arb.int(1..99),
-        ) { prev, requirement, percent ->
+        val random = Random(4)
+        repeat(samples) {
+            val prev = random.nextPrevOrNull()
+            val requirement = random.nextRequirement()
+            val percent = random.nextInt(1, 100)
             val equalLtv = Ltv.ofPercent(percent)
             val equalCa = CollateralArrangement(
                 id = CaId("ca-equal-ltv"),
@@ -88,7 +108,7 @@ class HealthPropertyTest : FunSpec({
                 currentStatus = prev,
             )
             val base = CollateralHealth.assess(equalCa, Event.Recompute(), prices).statusBeforeHistoryRules
-            (base == Status.GOOD_STANDING || base == Status.LIQUIDATION) shouldBe true
+            assertTrue(base == Status.GOOD_STANDING || base == Status.LIQUIDATION)
         }
     }
-})
+}
