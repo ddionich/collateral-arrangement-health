@@ -58,8 +58,7 @@ object CollateralHealth {
      */
     private fun candidateFor(event: Event, band: Band): Status = when (event) {
         // Rule 5
-        //TODO: Check if I can reverse this if statement to make it more readable
-        is Event.Link -> if (band == Band.BELOW_INITIAL) Status.GOOD_STANDING else Status.INITIAL_MARGIN_CALL
+        is Event.Link -> if (band >= Band.AT_OR_ABOVE_INITIAL) Status.INITIAL_MARGIN_CALL else Status.GOOD_STANDING
         // Rules 1-4
         is Event.Recompute -> when (band) {
             Band.BELOW_INITIAL           -> Status.GOOD_STANDING
